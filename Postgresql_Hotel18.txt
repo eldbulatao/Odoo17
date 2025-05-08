@@ -1,0 +1,91 @@
+CREATE OR REPLACE FUNCTION fnCheck_RegistrationConflict(reg_id BIGINT)
+RETURNS TABLE (
+    rid INT,
+    rmessage VARCHAR  
+) AS $$
+DECLARE 
+    tdfrom DATE;
+    tdto DATE;
+    cnt INT;
+    msg VARCHAR;
+    troom_id BIGINT;
+BEGIN
+    -- Get room schedule of registration
+    SELECT room_id,
+           cast("datefromSched" as DATE),
+           cast("datetoSched" as DATE)
+    INTO troom_id, tdfrom, tdto  
+    FROM hotel_guestregistration
+    WHERE id = reg_id;
+
+    -- Check for conflicting bookings
+    SELECT room_id, count(*)
+    INTO cnt
+    FROM hotel_guestregistration
+    WHERE room_id = troom_id 
+      AND state IN ('RESERVED', 'CHECKEDIN')
+      AND ("datefromSched" BETWEEN tdfrom AND tdto
+           OR "datetoSched" BETWEEN tdfrom AND tdto
+           OR tdfrom BETWEEN "datefromSched" AND "datetoSched"
+           OR tdto BETWEEN "datefromSched" AND "datetoSched")
+      AND id <> reg_id
+    GROUP BY room_id;
+
+    -- Return the conflict message
+    IF cnt > 0 THEN
+        msg := 'Schedule conflict exists!';
+    ELSE
+        msg := 'No schedule conflict found';
+    END IF;
+
+    RETURN QUERY
+    SELECT COALESCE(cnt, 0), msg;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE INDEX idx_reg_schedule_guestregistration
+ON hotel_guestregistration (room_id, state);
+
+-- Insert rooms (Exercise 9)
+INSERT INTO hotel_rooms (id, name, description, roomtype_id) VALUES
+(1, 'Room 101', 'Single Room', 1),
+(2, 'Room 102', 'Double Room', 2),
+(3, 'Room 103', 'Suite', 1),
+(4, 'Room 104', 'Single Room', 3),
+(5, 'Room 105', 'Family Suite', 2);
+
+-- Insert guests (5 total)
+INSERT INTO hotel_guests (id, lastname, firstname, middlename, address_streetno, address_area, address_city, address_province, zipcode, contactno, email, gender, birthdate) VALUES
+(1, 'Doe', 'John', 'Michael', '123 Elm St.', 'Apt 101, Greenway Residences', 'Springfield', 'Illinois', '62701', '555-1234', 'john.doe@example.com', 'MALE', '1985-04-10'),
+(2, 'Smith', 'Emma', 'Grace', '456 Oak St.', 'Suite 203, Maple Tower', 'Champaign', 'Illinois', '61820', '555-5678', 'emma.smith@example.com', 'FEMALE', '1990-07-22'),
+(3, 'Johnson', 'William', 'David', '789 Pine St.', 'Unit 502, Pine Crest Building', 'Chicago', 'Illinois', '60601', '555-9876', 'william.johnson@example.com', 'MALE', '1982-12-05'),
+(4, 'Williams', 'Olivia', 'Rose', '321 Maple St.', 'Apt 304, Heritage Heights', 'Peoria', 'Illinois', '61602', '555-2345', 'olivia.williams@example.com', 'FEMALE', '1995-09-15'),
+(5, 'Brown', 'James', 'Alexander', '102 Birch St.', 'Unit 601, Cedar View', 'Decatur', 'Illinois', '62521', '555-3456', 'james.brown@example.com', 'MALE', '1988-01-20');
+
+-- Insert guest registrations
+-- Registration 1 (Base case)
+INSERT INTO hotel_guestregistration (guest_id, room_id, "datefromSched", "datetoSched", state)
+VALUES (1, 1, '2025-05-10', '2025-05-12', 'RESERVED');
+
+-- Registration 2 (Conflict with Registration 1)
+INSERT INTO hotel_guestregistration (guest_id, room_id, "datefromSched", "datetoSched", state)
+VALUES (2, 1, '2025-05-11', '2025-05-13', 'RESERVED');
+
+-- Registration 3 (No conflict — different room)
+INSERT INTO hotel_guestregistration (guest_id, room_id, "datefromSched", "datetoSched", state)
+VALUES (3, 2, '2025-05-10', '2025-05-12', 'RESERVED');
+
+-- Registration 4 (Conflict with Registration 1)
+INSERT INTO hotel_guestregistration (guest_id, room_id, "datefromSched", "datetoSched", state)
+VALUES (4, 1, '2025-05-10', '2025-05-12', 'RESERVED');
+
+-- Registration 5 (No conflict — same room, later date)
+INSERT INTO hotel_guestregistration (guest_id, room_id, "datefromSched", "datetoSched", state)
+VALUES (5, 1, '2025-05-20', '2025-05-22', 'RESERVED');
+
+
+
+
+
+-- Test the function with a guest registration ID
+SELECT * FROM fnCheck_RegistrationConflict(6);
